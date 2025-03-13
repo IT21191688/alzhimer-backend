@@ -44,20 +44,18 @@ def load_model_on_startup():
         logger.error(f"Error loading model: {str(e)}")
         return False
 
-def preprocess_image(image_bytes):
-    """Preprocess image for model prediction."""
-    try:
-        # Open and preprocess image
-        img = Image.open(io.BytesIO(image_bytes))
-        img = img.convert('RGB')
-        img = img.resize((128, 128))
-        x = np.array(img)
-        x = x.astype('float32') / 255.0  # Normalize pixel values
-        x = np.expand_dims(x, axis=0)
-        return x
-    except Exception as e:
-        logger.error(f"Error preprocessing image: {str(e)}")
-        raise
+# Function to map prediction to class name
+def names(number):
+    if number == 0:
+        return 'Non Demented'
+    elif number == 1:
+        return 'Mild Dementia'
+    elif number == 2:
+        return 'Moderate Dementia'
+    elif number == 3:
+        return 'Very Mild Dementia'
+    else:
+        return 'Error in Prediction'
 
 @app.route('/', methods=['GET'])
 def root():
@@ -117,28 +115,30 @@ def predict():
 
         logger.info(f"Processing file: {file.filename}")
         
-        # Read and preprocess image
+        # Read and preprocess image exactly as in your test code
         image_bytes = file.read()
-        processed_image = preprocess_image(image_bytes)
+        img = Image.open(io.BytesIO(image_bytes))
+        img = img.convert('RGB')
+        x = np.array(img.resize((128, 128)))
+        x = x.reshape(1, 128, 128, 3)
         
-        # Make prediction
-        prediction = model.predict(processed_image)
-        class_idx = np.argmax(prediction, axis=1)[0]
+        # Use predict_on_batch as in your test code
+        prediction = model.predict_on_batch(x)
+        logger.info(f"Raw prediction values: {prediction[0]}")
+        
+        # Find the class with the highest probability using np.where
+        class_idx = np.where(prediction == np.amax(prediction))[1][0]
         confidence = float(prediction[0][class_idx] * 100)
         
-        # Define classes
-        classes = [
-            'Non Demented',
-            'Mild Dementia',
-            'Moderate Dementia',
-            'Very Mild Dementia'
-        ]
+        # Get prediction class name
+        prediction_class = names(class_idx)
         
         # Prepare response
         result = {
-            'prediction': classes[class_idx],
+            'prediction': prediction_class,
             'confidence': round(confidence, 2),
             'status': 'success',
+            'class_index': int(class_idx),
             'raw_predictions': {
                 'Non Demented': float(prediction[0][0] * 100),
                 'Mild Dementia': float(prediction[0][1] * 100),
