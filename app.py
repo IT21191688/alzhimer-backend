@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://localhost:3000", "http://localhost:5173"],
+        "origins": ["http://localhost:3000", "http://localhost:5173", "*"],
         "methods": ["GET", "POST"],
         "allow_headers": ["Content-Type"]
     }
@@ -30,12 +30,19 @@ CORS(app, resources={
 # Load model
 MODEL_PATH = os.getenv('MODEL_PATH', 'alzheimers_model.h5')
 
-try:
-    model = load_model(MODEL_PATH)
-    logger.info("Model loaded successfully")
-except Exception as e:
-    logger.error(f"Error loading model: {str(e)}")
-    raise
+# Initialize model variable
+model = None
+
+def load_model_on_startup():
+    """Load the model at startup or return a default response if it fails."""
+    global model
+    try:
+        model = load_model(MODEL_PATH)
+        logger.info("Model loaded successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Error loading model: {str(e)}")
+        return False
 
 def preprocess_image(image_bytes):
     """Preprocess image for model prediction."""
@@ -52,9 +59,26 @@ def preprocess_image(image_bytes):
         logger.error(f"Error preprocessing image: {str(e)}")
         raise
 
+@app.route('/', methods=['GET'])
+def root():
+    """Root endpoint to confirm API is running."""
+    return jsonify({
+        'status': 'online',
+        'message': 'Alzheimer\'s Prediction API is running'
+    }), 200
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
+    global model
+    if model is None:
+        model_loaded = load_model_on_startup()
+        if not model_loaded:
+            return jsonify({
+                'status': 'unhealthy',
+                'message': 'Failed to load model'
+            }), 500
+    
     return jsonify({
         'status': 'healthy',
         'message': 'Model server is running'
@@ -64,6 +88,15 @@ def health_check():
 def predict():
     """Prediction endpoint."""
     logger.info("Received prediction request")
+    
+    global model
+    if model is None:
+        model_loaded = load_model_on_startup()
+        if not model_loaded:
+            return jsonify({
+                'error': 'Model not loaded',
+                'status': 'error'
+            }), 500
     
     try:
         # Validate request
@@ -125,8 +158,13 @@ def predict():
         }), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
-    debug = os.getenv('DEBUG', 'True').lower() == 'true'
+    # Load model at startup
+    load_model_on_startup()
+    
+    # Get port from environment variable with a default of 10000 (Render's default)
+    port = int(os.getenv('PORT', 10000))
+    debug = os.getenv('DEBUG', 'False').lower() == 'true'
+    
     app.run(
         host='0.0.0.0',
         port=port,
